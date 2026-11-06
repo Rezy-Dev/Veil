@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ink">#FF000000</color>
+    <color name="paper">#FFFFFFFF</color>
+    <color name="ember">#FFD71921</color>
+</resources>

@@ -1,0 +1,16 @@
+*.iml
+.gradle
+.idea
+local.properties
+.DS_Store
+
+# Android / Gradle build output
+build/
+**/build/
+/captures
+.externalNativeBuild
+.cxx
+
+# Python
+__pycache__/
+*.pyc
