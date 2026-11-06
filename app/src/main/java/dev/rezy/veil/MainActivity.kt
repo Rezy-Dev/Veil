@@ -27,6 +27,7 @@ import dev.rezy.veil.ui.SettingsScreen
 import dev.rezy.veil.ui.theme.VeilTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -56,6 +57,7 @@ class MainActivity : FragmentActivity() {
     private var secureField by mutableStateOf(false)
 
     private var askedNotifications = false
+    private var refreshJob: kotlinx.coroutines.Job? = null
 
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -87,7 +89,7 @@ class MainActivity : FragmentActivity() {
                         hasPassword = Vault.hasPassword(this@MainActivity),
                         onLock = ::lockDesktop,
                         onUnlock = ::unlockDesktop,
-                        onRefresh = ::refreshStatus,
+                        onRefresh = { refreshStatus() },
                         onSetup = { screen = Screen.Settings },
                         onAbout = { screen = Screen.About }
                     )
@@ -121,6 +123,28 @@ class MainActivity : FragmentActivity() {
         super.onResume()
         refreshStatus()
         startWatch()
+        startPolling()
+    }
+
+    override fun onPause() {
+        refreshJob?.cancel()
+        refreshJob = null
+        super.onPause()
+    }
+
+    /**
+     * Keep the screen honest while it is visible: a prompt can appear on the
+     * desktop at any moment, and the notification alone must not be the only
+     * thing that knows about it.
+     */
+    private fun startPolling() {
+        refreshJob?.cancel()
+        refreshJob = lifecycleScope.launch {
+            while (isActive) {
+                delay(4000)
+                refreshStatus(silent = true)
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -135,7 +159,8 @@ class MainActivity : FragmentActivity() {
         if (!settings.isConfigured) return
 
         lifecycleScope.launch {
-            delay(400)
+            refreshStatus(silent = true)
+            delay(250)
             if (action == WatchService.ACTION_SEND || action == WatchService.ACTION_UNLOCK) {
                 unlockDesktop()
             }
@@ -168,13 +193,13 @@ class MainActivity : FragmentActivity() {
     // actions
     // ------------------------------------------------------------------ //
 
-    private fun refreshStatus() {
+    private fun refreshStatus(silent: Boolean = false) {
         if (!settings.isConfigured) {
             state = RemoteState(reachable = false)
             return
         }
 
-        state = state.copy(busy = true, message = null)
+        if (!silent) state = state.copy(busy = true, message = null)
         lifecycleScope.launch {
             val response = withContext(Dispatchers.IO) {
                 runCatching {
