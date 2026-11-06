@@ -22,11 +22,12 @@ Endpoints, HMAC-signed (see verify_request):
 Config: ~/.config/veil/remote.json
 
     {
-      "bind": "100.x.y.z",       # required
+      "bind": "127.0.0.1",       # required — where proxies reach it
+      "bind_extra": "",          # optional — e.g. a tailnet or LAN address
       "port": 8765,              # required
       "secret": "<hex>",         # required
       "lock_command": "",        # optional, overrides auto-detection
-      "locked_probe": "auto"     # auto | omarchy | logind | process
+      "locked_probe": "auto"     # auto | hyprland | omarchy | logind | process
     }
 """
 
@@ -524,21 +525,30 @@ def main() -> None:
 
     bind = CONFIG["bind"]
     port = int(CONFIG["port"])
-    server = ThreadingHTTPServer((bind, port), Handler)
-    server.daemon_threads = True
+    extra = (CONFIG.get("bind_extra") or "").strip()
 
-    log(f"listening on http://{bind}:{port}")
+    servers = [ThreadingHTTPServer((bind, port), Handler)]
+    if extra and extra != bind:
+        servers.append(ThreadingHTTPServer((extra, port), Handler))
+
+    for server in servers:
+        server.daemon_threads = True
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        log(f"listening on http://{server.server_address[0]}:{port}")
+
     locked, probe = session_locked()
     log(f"lock detection: {probe} -> locked={locked}")
     candidates = lock_candidates()
     log(f"lock candidates: {candidates or 'none'}")
 
     try:
-        server.serve_forever()
+        while True:
+            time.sleep(3600)
     except KeyboardInterrupt:
         pass
     finally:
-        server.server_close()
+        for server in servers:
+            server.server_close()
 
 
 if __name__ == "__main__":

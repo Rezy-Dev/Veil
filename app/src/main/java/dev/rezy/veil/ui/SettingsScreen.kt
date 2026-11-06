@@ -82,10 +82,10 @@ fun SettingsScreen(
             Spacer(Modifier.height(26.dp))
 
             VeilField(
-                label = "TAILSCALE HOST",
+                label = "SERVER HOST",
                 value = host,
                 onValueChange = onHost,
-                placeholder = "100.x.y.z"
+                placeholder = "hostname, IP or tunnel"
             )
             VeilField(
                 label = "PORT",
@@ -146,8 +146,14 @@ fun SettingsScreen(
             Spacer(Modifier.height(20.dp))
 
             Note(
-                "The host and secret come from desktop/setup.sh. Run it on the " +
-                    "Omarchy machine; it prints both and starts the daemon."
+                "The host and secret come from desktop/setup.sh on the machine " +
+                    "running the daemon."
+            )
+            Spacer(Modifier.height(10.dp))
+            Note(
+                "Any transport works: a Tailscale address, a Cloudflare Tunnel " +
+                    "hostname, a reverse proxy, or a plain LAN IP. Turn TLS on " +
+                    "(port 443) when something terminates HTTPS for you."
             )
             Spacer(Modifier.height(10.dp))
             Note(

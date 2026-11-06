@@ -79,8 +79,8 @@ fun AboutScreen(onBack: () -> Unit) {
 
             Section(
                 "WHAT IT IS",
-                "Veil locks and unlocks your Omarchy desktop from this phone. It " +
-                    "talks to a small daemon on the desktop over your Tailscale network."
+                "Veil locks and unlocks your desktop from this phone. It talks to " +
+                    "a small daemon running on that machine."
             )
 
             Section(
@@ -93,16 +93,17 @@ fun AboutScreen(onBack: () -> Unit) {
             Section(
                 "HOW UNLOCK WORKS",
                 "The daemon types the password into the focused lock screen and " +
-                    "presses Return. Quickshell's PAM stack then validates it exactly " +
+                    "presses Return. The locker's own PAM stack validates it exactly " +
                     "as if you had typed it by hand — nothing bypasses authentication."
             )
 
             Section(
                 "TRANSPORT",
-                "Requests go over Tailscale, which encrypts them with WireGuard. " +
-                    "Each one is also signed with HMAC-SHA256 over a timestamp, a " +
-                    "nonce, the method, the path and the body, so a forged or replayed " +
-                    "request is rejected."
+                "Any path works: a private network, a tunnel, or a reverse proxy. " +
+                    "Requests are signed with HMAC-SHA256 over a timestamp, a nonce, " +
+                    "the method, the path and the body, so forged or replayed " +
+                    "requests are rejected. Use TLS whenever the daemon is not " +
+                    "reachable only from a network you trust."
             )
 
             Spacer(Modifier.height(2.dp))
