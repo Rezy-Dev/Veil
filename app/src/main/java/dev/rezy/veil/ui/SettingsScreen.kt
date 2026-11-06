@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
@@ -39,6 +40,8 @@ fun SettingsScreen(
     onSecret: (String) -> Unit,
     password: String,
     onPassword: (String) -> Unit,
+    secure: Boolean,
+    onSecure: (Boolean) -> Unit,
     hasPassword: Boolean,
     busy: Boolean,
     onSave: () -> Unit,
@@ -108,6 +111,29 @@ fun SettingsScreen(
             )
 
             Spacer(Modifier.height(10.dp))
+
+            androidx.compose.foundation.layout.Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "TLS",
+                        style = dotStyle(13, Slate, spacing = 3)
+                    )
+                    Text(
+                        text = if (secure) "https via Tailscale Serve" else "http, tailnet only",
+                        style = TextStyle(
+                            fontFamily = Handjet,
+                            fontSize = 12.sp,
+                            color = Ash
+                        )
+                    )
+                }
+                VeilToggle(checked = secure, onChange = onSecure)
+            }
+
+            Spacer(Modifier.height(22.dp))
 
             VeilButton(
                 label = "SAVE",

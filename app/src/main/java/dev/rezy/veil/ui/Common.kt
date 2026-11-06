@@ -8,11 +8,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -38,6 +41,29 @@ fun Rule(modifier: Modifier = Modifier) {
             .height(1.dp)
             .background(Line)
     )
+}
+
+@Composable
+fun VeilToggle(checked: Boolean, onChange: (Boolean) -> Unit) {
+    val shift by androidx.compose.animation.core.animateDpAsState(
+        if (checked) 32.dp else 0.dp,
+        label = "toggle"
+    )
+    Box(
+        Modifier
+            .size(width = 64.dp, height = 32.dp)
+            .border(1.dp, if (checked) Paper else Line)
+            .clickable { onChange(!checked) }
+    ) {
+        Box(
+            Modifier
+                .align(Alignment.CenterStart)
+                .offset(x = shift)
+                .padding(4.dp)
+                .size(24.dp)
+                .background(if (checked) dev.rezy.veil.ui.theme.Ember else Slate)
+        )
+    }
 }
 
 @Composable

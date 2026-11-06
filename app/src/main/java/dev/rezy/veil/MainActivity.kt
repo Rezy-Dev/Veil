@@ -1,9 +1,14 @@
 package dev.rezy.veil
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.runtime.getValue
@@ -21,6 +26,7 @@ import dev.rezy.veil.ui.RemoteState
 import dev.rezy.veil.ui.SettingsScreen
 import dev.rezy.veil.ui.theme.VeilTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -47,6 +53,12 @@ class MainActivity : FragmentActivity() {
     private var portField by mutableStateOf("8765")
     private var secretField by mutableStateOf("")
     private var passwordField by mutableStateOf("")
+    private var secureField by mutableStateOf(false)
+
+    private var askedNotifications = false
+
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,10 +68,14 @@ class MainActivity : FragmentActivity() {
         hostField = settings.host
         portField = settings.port.toString()
         secretField = settings.secret
+        secureField = settings.secure
+
+        // First run: nothing is configured, so open on Setup instead of a
+        // dead remote screen.
+        screen = if (settings.isConfigured) Screen.Remote else Screen.Settings
 
         setContent {
-            VeilTheme {
-                BackHandler(enabled = screen != Screen.Remote) {
+            VeilTheme {                BackHandler(enabled = screen != Screen.Remote) {
                     screen = Screen.Remote
                 }
 
@@ -85,6 +101,8 @@ class MainActivity : FragmentActivity() {
                         onSecret = { secretField = it },
                         password = passwordField,
                         onPassword = { passwordField = it },
+                        secure = secureField,
+                        onSecure = { secureField = it },
                         hasPassword = Vault.hasPassword(this@MainActivity),
                         busy = state.busy,
                         onSave = ::saveSettings,
@@ -95,11 +113,55 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
+
+        handleIntent(intent)
     }
 
     override fun onResume() {
         super.onResume()
         refreshStatus()
+        startWatch()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        val action = intent?.getStringExtra(EXTRA_ACTION) ?: return
+        intent.removeExtra(EXTRA_ACTION)
+        if (!settings.isConfigured) return
+
+        lifecycleScope.launch {
+            delay(400)
+            if (action == WatchService.ACTION_SEND || action == WatchService.ACTION_UNLOCK) {
+                unlockDesktop()
+            }
+        }
+    }
+
+    private fun startWatch() {
+        if (!settings.isConfigured || !settings.watches) return
+        ensureNotificationPermission()
+        runCatching {
+            ContextCompat.startForegroundService(
+                this, Intent(this, WatchService::class.java)
+            )
+        }
+    }
+
+    private fun ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (askedNotifications) return
+        if (ContextCompat.checkSelfPermission(
+                this, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        ) return
+
+        askedNotifications = true
+        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     // ------------------------------------------------------------------ //
@@ -118,7 +180,7 @@ class MainActivity : FragmentActivity() {
                 runCatching {
                     VeilClient.call(
                         settings.host, settings.port, settings.secret,
-                        "GET", "/status"
+                        "GET", "/status", secure = settings.secure
                     )
                 }.getOrNull()
             }
@@ -153,7 +215,7 @@ class MainActivity : FragmentActivity() {
                 runCatching {
                     VeilClient.call(
                         settings.host, settings.port, settings.secret,
-                        "POST", "/lock"
+                        "POST", "/lock", secure = settings.secure
                     )
                 }.getOrNull()
             }
@@ -208,7 +270,7 @@ class MainActivity : FragmentActivity() {
                 runCatching {
                     VeilClient.call(
                         settings.host, settings.port, settings.secret,
-                        "POST", "/unlock", body
+                        "POST", "/unlock", body, secure = settings.secure
                     )
                 }.getOrNull()
             }
@@ -241,10 +303,12 @@ class MainActivity : FragmentActivity() {
         settings.host = hostField.trim()
         settings.port = portField.trim().toIntOrNull() ?: 8765
         settings.secret = secretField.trim()
+        settings.secure = secureField
 
         val password = passwordField
         if (password.isBlank()) {
             screen = Screen.Remote
+            startWatch()
             refreshStatus()
             return
         }
@@ -261,6 +325,7 @@ class MainActivity : FragmentActivity() {
                 Vault.store(this, cipher, password)
                 passwordField = ""
                 screen = Screen.Remote
+                startWatch()
                 refreshStatus()
             } catch (e: Exception) {
                 setMessage("Save failed: ${e.message}")
@@ -338,5 +403,9 @@ class MainActivity : FragmentActivity() {
 
     private fun setMessage(text: String) {
         state = state.copy(message = text)
+    }
+
+    companion object {
+        const val EXTRA_ACTION = "action"
     }
 }

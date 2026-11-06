@@ -19,6 +19,16 @@ class Settings(context: Context) {
         get() = sp.getString("secret", "") ?: ""
         set(value) = sp.edit().putString("secret", value).apply()
 
+    /** true once Tailscale Serve is in front of the daemon (https). */
+    var secure: Boolean
+        get() = sp.getBoolean("secure", false)
+        set(value) = sp.edit().putBoolean("secure", value).apply()
+
+    /** Ask the daemon for a long poll when true. */
+    var watches: Boolean
+        get() = sp.getBoolean("watches", true)
+        set(value) = sp.edit().putBoolean("watches", value).apply()
+
     val isConfigured: Boolean
         get() = host.isNotBlank() && secret.isNotBlank()
 

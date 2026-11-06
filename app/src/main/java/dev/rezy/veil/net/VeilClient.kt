@@ -24,18 +24,21 @@ object VeilClient {
         secret: String,
         method: String,
         path: String,
-        body: String = ""
+        body: String = "",
+        secure: Boolean = false,
+        readTimeoutMs: Int = 20000
     ): Response {
         val timestamp = (System.currentTimeMillis() / 1000).toString()
         val nonce = randomNonce()
         val signed = "$timestamp\n$nonce\n$method\n$path\n$body"
         val signature = hmacSha256(secret, signed)
 
-        val connection = (URL("http://$host:$port$path").openConnection()
+        val scheme = if (secure) "https" else "http"
+        val connection = (URL("$scheme://$host:$port$path").openConnection()
                 as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = 6000
-            readTimeout = 20000
+            readTimeout = readTimeoutMs
             doInput = true
             setRequestProperty("X-Veil-Ts", timestamp)
             setRequestProperty("X-Veil-Nonce", nonce)
