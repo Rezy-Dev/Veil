@@ -1,7 +1,16 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
+
+// Release signing material lives outside version control.
+val keystoreProps = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+val hasSigningKey = keystoreProps.size > 0
 
 android {
     namespace = "dev.rezy.veil"
@@ -19,18 +28,37 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Cleartext is allowed in debug builds only, so a release APK can never
+        // be talked into sending the desktop password over plain HTTP.
+        manifestPlaceholders["cleartextTraffic"] = "false"
+    }
+
+    signingConfigs {
+        if (hasSigningKey) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps["storeFile"] as String)
+                storePassword = keystoreProps["storePassword"] as String
+                keyAlias = keystoreProps["keyAlias"] as String
+                keyPassword = keystoreProps["keyPassword"] as String
+            }
+        }
     }
 
     buildTypes {
+        debug {
+            manifestPlaceholders["cleartextTraffic"] = "true"
+        }
         release {
-            isMinifyEnabled = false
-            optimization {
-                enable = false
-            }
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (hasSigningKey) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

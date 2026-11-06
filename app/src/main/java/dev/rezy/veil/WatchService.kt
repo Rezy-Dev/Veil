@@ -83,7 +83,7 @@ class WatchService : Service() {
 
                 locked && !lastLocked -> post(
                     "Desktop locked",
-                    "Tap to unlock with your fingerprint",
+                    "Tap to unlock",
                     ACTION_UNLOCK
                 )
 

@@ -1,6 +1,7 @@
 package dev.rezy.veil
 
 import android.Manifest
+import android.app.KeyguardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -363,8 +364,8 @@ class MainActivity : FragmentActivity() {
     // ------------------------------------------------------------------ //
 
     private fun promptBiometric(cipher: Cipher, title: String, onSuccess: () -> Unit) {
-        if (!biometricsAvailable()) {
-            setMessage("No biometrics enrolled on this phone")
+        if (!authAvailable()) {
+            setMessage("Set a screen lock first — PIN, pattern, password or biometric")
             return
         }
 
@@ -391,20 +392,32 @@ class MainActivity : FragmentActivity() {
             }
         )
 
-        prompt.authenticate(
-            BiometricPrompt.PromptInfo.Builder()
-                .setTitle(title)
-                .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
-                .setNegativeButtonText("Cancel")
-                .build(),
-            BiometricPrompt.CryptoObject(cipher)
-        )
+        val info = BiometricPrompt.PromptInfo.Builder().setTitle(title)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            info.setAllowedAuthenticators(
+                BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                    BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            info.setDeviceCredentialAllowed(true)
+        }
+
+        prompt.authenticate(info.build(), BiometricPrompt.CryptoObject(cipher))
     }
 
-    private fun biometricsAvailable(): Boolean =
-        BiometricManager.from(this)
+    /**
+     * True when the user can prove identity at all: a biometric sensor, or a
+     * secure screen lock (PIN / pattern / password) they can fall back to.
+     */
+    private fun authAvailable(): Boolean {
+        val keyguard = getSystemService(KeyguardManager::class.java)
+        if (keyguard?.isDeviceSecure == true) return true
+
+        return BiometricManager.from(this)
             .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) ==
             BiometricManager.BIOMETRIC_SUCCESS
+    }
 
     private fun parseLocked(body: String): Boolean? = runCatching {
         JSONObject(body).optBoolean("locked", false)

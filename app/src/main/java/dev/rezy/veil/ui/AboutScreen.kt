@@ -85,9 +85,10 @@ fun AboutScreen(onBack: () -> Unit) {
 
             Section(
                 "BIOMETRICS",
-                "Unlocking needs a fingerprint. The desktop password is encrypted " +
-                    "with a key held in the phone's secure element that only a live " +
-                    "biometric can use, so the stored bytes are useless on their own."
+                "Unlocking makes you prove it's you — a fingerprint or face if the " +
+                    "phone has one, otherwise your PIN, pattern or password. The " +
+                    "desktop password is sealed by a key in the secure element that " +
+                    "only that check can release."
             )
 
             Section(

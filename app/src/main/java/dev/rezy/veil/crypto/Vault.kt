@@ -25,13 +25,30 @@ object Vault {
     private const val PREFS = "veil_vault"
     private const val KEY_CT = "ct"
     private const val KEY_IV = "iv"
+    private const val KEY_VER = "ver"
+    private const val VER = 2
     private const val TRANSFORM = "AES/GCM/NoPadding"
     private const val TAG_BITS = 128
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    fun hasPassword(context: Context): Boolean = prefs(context).contains(KEY_CT)
+    /**
+     * A stored password is only valid for the current key spec. Version 1 keys
+     * were biometric-only, which locked out devices without a sensor, so a v1
+     * blob is discarded and the user is asked to authenticate once more.
+     */
+    private fun ensureCurrentVersion(context: Context) {
+        val sp = prefs(context)
+        if (sp.getInt(KEY_VER, 0) == VER) return
+        sp.edit().clear().apply()
+        runCatching { keyStore().deleteEntry(ALIAS) }
+    }
+
+    fun hasPassword(context: Context): Boolean {
+        ensureCurrentVersion(context)
+        return prefs(context).contains(KEY_CT)
+    }
 
     private fun keyStore(): KeyStore =
         KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -56,8 +73,13 @@ object Vault {
             .setInvalidatedByBiometricEnrollment(true)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Biometric *or* the device credential (PIN, pattern, password).
+            // Without this, a phone with no fingerprint sensor could never use
+            // the app, and face unlock on some vendors maps only to credential.
             builder.setUserAuthenticationParameters(
-                0, KeyProperties.AUTH_BIOMETRIC_STRONG
+                0,
+                KeyProperties.AUTH_BIOMETRIC_STRONG or
+                    KeyProperties.AUTH_DEVICE_CREDENTIAL
             )
         } else {
             @Suppress("DEPRECATION")
@@ -74,9 +96,9 @@ object Vault {
         cipher.init(Cipher.ENCRYPT_MODE, secretKey())
         return cipher
     }
-
     /** Cipher ready to decrypt the stored password; needs biometric unlock. */
     fun cipherForDecrypt(context: Context): Cipher {
+        ensureCurrentVersion(context)
         val iv = Base64.decode(
             prefs(context).getString(KEY_IV, null) ?: error("no saved password"),
             Base64.NO_WRAP
@@ -88,10 +110,12 @@ object Vault {
 
     /** Call only after the biometric prompt succeeded with this cipher. */
     fun store(context: Context, cipher: Cipher, password: String) {
+        ensureCurrentVersion(context)
         val ciphertext = cipher.doFinal(password.toByteArray(Charsets.UTF_8))
         prefs(context).edit()
             .putString(KEY_CT, Base64.encodeToString(ciphertext, Base64.NO_WRAP))
             .putString(KEY_IV, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+            .putInt(KEY_VER, VER)
             .apply()
     }
 

@@ -54,6 +54,24 @@ CONFIG_PATH = os.path.join(CONFIG_DIR, "remote.json")
 
 MAX_SKEW_SECONDS = 45
 MAX_UNLOCK_PER_MINUTE = 6
+MAX_LOCK_PER_MINUTE = 10
+
+# A sudo prompt is only answered when the focused window is a terminal, so a
+# stale sudo can never type your password into a browser or a chat window.
+# pkexec is exempt because its own dialog is the thing holding focus.
+TERMINAL_CLASSES = {
+    "foot",
+    "alacritty",
+    "kitty",
+    "wezterm",
+    "org.wezfurlong.wezterm",
+    "com.mitchellh.ghostty",
+    "org.omarchy.terminal",
+    "xterm",
+    "konsole",
+    "gnome-terminal-server",
+    "termite",
+}
 
 # Lockers that hold the session by themselves. Ext-session-lock clients are
 # covered by the logind/Omarchy probes above; this list is the last resort.
@@ -79,6 +97,8 @@ _seen_nonces: dict[str, float] = {}
 _nonce_lock = threading.Lock()
 _unlock_times: list[float] = []
 _unlock_lock = threading.Lock()
+_lock_times: list[float] = []
+_lock_lock = threading.Lock()
 
 
 def log(message: str) -> None:
@@ -274,13 +294,13 @@ def type_text(text: str) -> bool:
 PASSWORD_PROMPTERS = ("sudo", "doas", "pkexec")
 
 
-def pending_password_prompt() -> bool:
-    """True when something is actually waiting for a password."""
+def pending_password_prompt() -> str | None:
+    """Name of the process waiting for a password, or None."""
     for name in PASSWORD_PROMPTERS:
         result = run(["pgrep", "-x", name], timeout=3)
         if result.returncode == 0 and result.stdout.strip():
-            return True
-    return False
+            return name
+    return None
 
 
 def focused_window() -> dict:
@@ -315,10 +335,17 @@ def do_unlock(password: str) -> tuple[bool, str]:
     # Session is unlocked. The useful case is a password prompt: sudo, doas or
     # pkexec waiting on the focused terminal. We refuse otherwise so a stray tap
     # can never type the password into an editor or a chat window.
-    if pending_password_prompt():
+    kind = pending_password_prompt()
+    if kind:
+        if kind != "pkexec":
+            window_class = focused_window().get("class", "")
+            allowed = TERMINAL_CLASSES | set(CONFIG.get("terminal_classes") or [])
+            if window_class not in allowed:
+                return False, f"focus-not-terminal ({window_class or 'none'})"
+
         if not type_text(password):
             return False, "typing-failed"
-        return True, "typed (password prompt)"
+        return True, f"typed ({kind})"
 
     if locked is None:
         return False, "cannot-tell"
@@ -329,11 +356,13 @@ def do_unlock(password: str) -> tuple[bool, str]:
 def snapshot() -> dict:
     """Current state, cheap enough to poll once a second."""
     locked, probe = session_locked()
+    kind = pending_password_prompt()
     return {
         "locked": bool(locked),
         "known": locked is not None,
         "detected_by": probe,
-        "prompting": pending_password_prompt(),
+        "prompting": kind is not None,
+        "prompt_kind": kind or "",
         "focus": focused_window(),
     }
 
@@ -400,26 +429,47 @@ def unlock_rate_limited() -> bool:
     return False
 
 
+def lock_rate_limited() -> bool:
+    now = time.monotonic()
+    with _lock_lock:
+        _lock_times[:] = [t for t in _lock_times if now - t < 60.0]
+        if len(_lock_times) >= MAX_LOCK_PER_MINUTE:
+            return True
+        _lock_times.append(now)
+    return False
+
+
 # --------------------------------------------------------------------------- #
 # http
 # --------------------------------------------------------------------------- #
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Veil/1.1"
+    server_version = "Veil"
     protocol_version = "HTTP/1.1"
+    # Close sockets that go quiet, so a stalled connection cannot pin a thread.
+    timeout = 15
 
     # keep the noise out of the journal; we log our own lines
     def log_message(self, fmt: str, *args) -> None:  # noqa: A003
         return
 
-    def _reply(self, code: int, payload: dict) -> None:
+    def _reply(self, code: int, payload: dict, close: bool = False) -> None:
         data = json.dumps(payload).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
+        if close:
+            # Body was not read, so the socket cannot be reused: whatever is
+            # still queued would be parsed as the next request (desync).
+            self.send_header("Connection", "close")
+            self.close_connection = True
         self.end_headers()
         self.wfile.write(data)
+
+    def version_string(self) -> str:
+        # Do not advertise the interpreter version.
+        return self.server_version
 
     def _read_body(self) -> bytes:
         length = int(self.headers.get("Content-Length") or 0)
@@ -433,7 +483,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             body = self._read_body()
         except ValueError as exc:
-            self._reply(413, {"ok": False, "error": str(exc)})
+            self._reply(413, {"ok": False, "error": str(exc)}, close=True)
             return
 
         error = verify_request(CONFIG["secret"], self, body)
@@ -459,21 +509,14 @@ class Handler(BaseHTTPRequestHandler):
                 time.sleep(1.0)
 
         if self.path == "/status" and method == "GET":
-            locked, probe = session_locked()
-            self._reply(
-                200,
-                {
-                    "ok": True,
-                    "locked": locked if locked is not None else False,
-                    "known": locked is not None,
-                    "detected_by": probe,
-                    "prompting": pending_password_prompt(),
-                    "focus": focused_window(),
-                },
-            )
+            self._reply(200, {"ok": True, **snapshot()})
             return
 
         if self.path == "/lock" and method == "POST":
+            if lock_rate_limited():
+                log("lock rejected: rate limit")
+                self._reply(429, {"ok": False, "error": "rate-limited"})
+                return
             ok, detail = do_lock()
             log(f"lock -> {detail}")
             self._reply(200 if ok else 500, {"ok": ok, "detail": detail})

@@ -14,3 +14,13 @@ build/
 # Python
 __pycache__/
 *.pyc
+
+# Release signing
+keystore.properties
+keystore/
+*.jks
+*.keystore
+
+# Build artefacts
+*.apk
+app-release.apk

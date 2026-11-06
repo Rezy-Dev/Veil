@@ -157,9 +157,9 @@ fun SettingsScreen(
             )
             Spacer(Modifier.height(10.dp))
             Note(
-                "Saving the password asks for your fingerprint. It is encrypted " +
-                    "with a key inside the secure element that only a live biometric " +
-                    "can use — the stored bytes are useless without you."
+                "Saving the password asks you to prove it's you — a biometric if " +
+                    "the phone has one, otherwise your PIN, pattern or password. " +
+                    "The stored bytes are useless without that check."
             )
             Spacer(Modifier.height(40.dp))
         }
