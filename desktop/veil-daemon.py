@@ -293,13 +293,39 @@ def type_text(text: str) -> bool:
 # Processes that block waiting for a typed password.
 PASSWORD_PROMPTERS = ("sudo", "doas", "pkexec")
 
+# After a password has been sent, do not report a prompt again for a moment and
+# reject a repeat send. This closes the window where `sudo su` still has a live
+# `sudo` parent while the root shell is already accepting input.
+SEND_COOLDOWN_SECONDS = 4.0
+SEND_GRACE_SECONDS = 6.0
+_last_send_at = 0.0
+
+
+def _pids(name: str) -> list[int]:
+    result = run(["pgrep", "-x", name], timeout=3)
+    if result.returncode != 0:
+        return []
+    return [int(token) for token in result.stdout.split() if token.isdigit()]
+
+
+def _has_children(pid: int) -> bool:
+    result = run(["pgrep", "-P", str(pid)], timeout=3)
+    return result.returncode == 0 and bool(result.stdout.strip())
+
 
 def pending_password_prompt() -> str | None:
-    """Name of the process waiting for a password, or None."""
+    """Name of the process *waiting for a password*, or None.
+
+    A prompter only counts while it has not spawned anything: `sudo cmd` forks
+    the command after authentication, and `sudo su` therefore keeps a live
+    `sudo` parent for as long as the root shell exists. Matching the process
+    name alone would keep saying "prompting" inside that root shell, which is
+    how the password ends up typed at a `#` prompt.
+    """
     for name in PASSWORD_PROMPTERS:
-        result = run(["pgrep", "-x", name], timeout=3)
-        if result.returncode == 0 and result.stdout.strip():
-            return name
+        for pid in _pids(name):
+            if not _has_children(pid):
+                return name
     return None
 
 
@@ -317,6 +343,8 @@ def focused_window() -> dict:
 
 
 def do_unlock(password: str) -> tuple[bool, str]:
+    global _last_send_at
+
     locked, probe = session_locked()
 
     if locked is True:
@@ -345,6 +373,7 @@ def do_unlock(password: str) -> tuple[bool, str]:
 
         if not type_text(password):
             return False, "typing-failed"
+        _last_send_at = time.monotonic()
         return True, f"typed ({kind})"
 
     if locked is None:
@@ -357,6 +386,13 @@ def snapshot() -> dict:
     """Current state, cheap enough to poll once a second."""
     locked, probe = session_locked()
     kind = pending_password_prompt()
+
+    # Do not re-offer SEND PASSWORD immediately after a send: the prompter may
+    # still be tearing down, and the next thing to receive keystrokes could be
+    # the shell the password just unlocked.
+    if kind and (time.monotonic() - _last_send_at) < SEND_GRACE_SECONDS:
+        kind = None
+
     return {
         "locked": bool(locked),
         "known": locked is not None,
@@ -523,6 +559,10 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.path == "/unlock" and method == "POST":
+            if time.monotonic() - _last_send_at < SEND_COOLDOWN_SECONDS:
+                log("unlock rejected: send cooldown")
+                self._reply(429, {"ok": False, "error": "cooldown"})
+                return
             if unlock_rate_limited():
                 log("unlock rejected: rate limit")
                 self._reply(429, {"ok": False, "error": "rate-limited"})

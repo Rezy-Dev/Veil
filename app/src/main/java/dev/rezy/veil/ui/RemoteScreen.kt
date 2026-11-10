@@ -42,6 +42,7 @@ data class RemoteState(
     val busy: Boolean = false,
     val prompting: Boolean = false,
     val focus: String? = null,
+    val suppressSend: Boolean = false,
     val message: String? = null
 )
 
@@ -138,7 +139,7 @@ fun RemoteScreen(
             VeilButton(
                 label = unlockLabel(state, hasPassword),
                 filled = true,
-                enabled = configured && !state.busy
+                enabled = configured && !state.busy && !state.suppressSend
             ) { onUnlock() }
 
             Spacer(Modifier.height(22.dp))
@@ -203,6 +204,7 @@ private fun statusLabel(state: RemoteState, configured: Boolean): Pair<String, a
 
 private fun unlockLabel(state: RemoteState, hasPassword: Boolean): String = when {
     !hasPassword -> "UNLOCK · SET PASSWORD"
+    state.suppressSend -> "SENT"
     state.locked != true && state.prompting -> "SEND PASSWORD"
     else -> "UNLOCK"
 }

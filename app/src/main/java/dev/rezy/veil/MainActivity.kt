@@ -60,6 +60,9 @@ class MainActivity : FragmentActivity() {
     private var askedNotifications = false
     private var refreshJob: kotlinx.coroutines.Job? = null
 
+    /** Wall-clock guard so a second tap cannot re-send into the unlocked shell. */
+    private var suppressSendUntil = 0L
+
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
@@ -228,6 +231,7 @@ class MainActivity : FragmentActivity() {
                         JSONObject(response.body).optBoolean("prompting", false)
                     }.getOrDefault(false),
                     focus = focusLabel(response.body),
+                    suppressSend = android.os.SystemClock.elapsedRealtime() < suppressSendUntil,
                     message = null
                 )
             }
@@ -305,10 +309,20 @@ class MainActivity : FragmentActivity() {
                     busy = false, reachable = false,
                     message = "Cannot reach the desktop"
                 )
-                response.ok -> state.copy(
-                    busy = false, reachable = true, locked = false,
-                    prompting = false, message = null
-                )
+                response.ok -> {
+                    suppressSendUntil = android.os.SystemClock.elapsedRealtime() + 8000
+                    state.copy(
+                        busy = false, reachable = true, locked = false,
+                        prompting = false, suppressSend = true, message = null
+                    )
+                }
+                detail(response.body) == "cooldown" -> {
+                    suppressSendUntil = android.os.SystemClock.elapsedRealtime() + 6000
+                    state.copy(
+                        busy = false, reachable = true, prompting = false, suppressSend = true,
+                        message = null
+                    )
+                }
                 detail(response.body) == "nothing-is-asking" -> state.copy(
                     busy = false, reachable = true,
                     message = "Nothing on the desktop is asking for a password"
